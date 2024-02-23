@@ -187,7 +187,7 @@ class CrossAttention(nn.Module):
 class BasicTransformerBlock(nn.Module):
 
     def __init__(self, dim, n_heads, d_head, dropout=0., context_dim=None, gated_ff=True, checkpoint=True,
-                disable_self_attn=False, attention_cls=None, img_cross_attention=False):
+                disable_self_attn=False, attention_cls=None, img_cross_attention=False, initialized_from = "None"):
         super().__init__()
         attn_cls = CrossAttention if attention_cls is None else attention_cls
         self.disable_self_attn = disable_self_attn
@@ -200,6 +200,7 @@ class BasicTransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(dim)
         self.norm3 = nn.LayerNorm(dim)
         self.checkpoint = checkpoint
+        self.initialized_from = initialized_from
 
     def forward(self, x, context=None, mask=None):
         ## implementation tricks: because checkpointing doesn't support non-tensor (e.g. None or scalar) arguments
@@ -250,7 +251,9 @@ class SpatialTransformer(nn.Module):
                 context_dim=context_dim,
                 img_cross_attention=img_cross_attention,
                 disable_self_attn=disable_self_attn,
-                checkpoint=use_checkpoint) for d in range(depth)
+                checkpoint=use_checkpoint,
+                initialized_from="SpatialTransformer"
+                ) for d in range(depth)
         ])
         if not use_linear:
             self.proj_out = zero_module(nn.Conv2d(inner_dim, in_channels, kernel_size=1, stride=1, padding=0))
@@ -320,7 +323,9 @@ class TemporalTransformer(nn.Module):
                 dropout=dropout,
                 context_dim=context_dim,
                 attention_cls=attention_cls,
-                checkpoint=use_checkpoint) for d in range(depth)
+                checkpoint=use_checkpoint,
+                initialized_from="TemporalTransformer"
+                ) for d in range(depth)
         ])
         if not use_linear:
             self.proj_out = zero_module(nn.Conv1d(inner_dim, in_channels, kernel_size=1, stride=1, padding=0))

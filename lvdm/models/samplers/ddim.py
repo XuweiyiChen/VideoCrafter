@@ -145,6 +145,8 @@ class DDIMSampler(object):
             img = torch.randn(shape, device=device)
         else:
             img = x_T
+
+        motion_img = img.clone()
         
         if timesteps is None:
             timesteps = self.ddpm_num_timesteps if ddim_use_original_steps else self.ddim_timesteps
@@ -162,7 +164,8 @@ class DDIMSampler(object):
 
         init_x0 = False
         clean_cond = kwargs.pop("clean_cond", False)
-        for i, step in enumerate(iterator):
+        for i, step in tqdm(enumerate(iterator), total=len(iterator)):
+            motion_outs = img.clone()
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
             if start_timesteps is not None:
@@ -198,8 +201,17 @@ class DDIMSampler(object):
                                       unconditional_conditioning=unconditional_conditioning,
                                       x0=x0,
                                       **kwargs)
+            # motion_outs = self.p_sample_ddim(motion_img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
+            #                 quantize_denoised=quantize_denoised, temperature=temperature,
+            #                 noise_dropout=noise_dropout, score_corrector=score_corrector,
+            #                 corrector_kwargs=corrector_kwargs,
+            #                 unconditional_guidance_scale=unconditional_guidance_scale,
+            #                 unconditional_conditioning=unconditional_conditioning,
+            #                 x0=x0,
+            #                 **kwargs)
             
             img, pred_x0 = outs
+            motion_img, _ = motion_outs
             if callback: callback(i)
             if img_callback: img_callback(pred_x0, i)
 
