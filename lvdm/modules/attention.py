@@ -69,9 +69,10 @@ class CrossAttention(nn.Module):
             self.relative_position_k = RelativePosition(num_units=dim_head, max_relative_position=temporal_length)
             self.relative_position_v = RelativePosition(num_units=dim_head, max_relative_position=temporal_length)
         else:
-            ## only used for spatial attention, while NOT for temporal attention
+            # only used for spatial attention, while NOT for temporal attention
             if XFORMERS_IS_AVAILBLE and temporal_length is None:
                 self.forward = self.efficient_forward
+            # pass
 
     def forward(self, x, context=None, mask=None):
         h = self.heads
@@ -126,7 +127,7 @@ class CrossAttention(nn.Module):
 
         return self.to_out(out)
     
-    def efficient_forward(self, x, context=None, mask=None):
+    def efficient_forward(self, x, context=None, mask=None, k_input=None, v_input=None, video_length=None, attention_mask=None):
         q = self.to_q(x)
         context = default(context, x)
 
@@ -138,8 +139,14 @@ class CrossAttention(nn.Module):
             k_ip = self.to_k_ip(context_img)
             v_ip = self.to_v_ip(context_img)
         else:
-            k = self.to_k(context)
-            v = self.to_v(context)
+            if k_input is None:
+                k = self.to_k(context)
+            else:
+                k = self.to_k(k_input)
+            if v_input is None:
+                v = self.to_v(context)
+            else:
+                v = self.to_v(v_input)
 
         b, _, _ = q.shape
         q, k, v = map(

@@ -36,10 +36,13 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     def forward(self, x, emb, context=None, batch_size=None):
         for layer in self:
             if isinstance(layer, TimestepBlock):
+                # emb = torch.cat([emb, emb], dim=0)
                 x = layer(x, emb, batch_size)
             elif isinstance(layer, SpatialTransformer):
+                # context = torch.cat([context, context], dim=0)
                 x = layer(x, context)
             elif isinstance(layer, TemporalTransformer):
+                # batch_size = batch_size * 2
                 x = rearrange(x, '(b f) c h w -> b c f h w', b=batch_size)
                 x = layer(x, context)
                 x = rearrange(x, 'b c f h w -> (b f) c h w')

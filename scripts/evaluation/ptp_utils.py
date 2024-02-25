@@ -19,28 +19,46 @@ from einops import rearrange, repeat
 
 def register_attention_control(model, controller):
     def block_forward(block, place_in_unet):
-        original_forward = block.forward
+        # original_forward = block.forward
 
-        def forward(*args, **kwargs):
-            context = args[0] if args else kwargs.get('context', None)
-            encoder_hidden_states = kwargs.get('encoder_hidden_states', None)
-            attention_mask = kwargs.get('attention_mask', None)
-            video_length = kwargs.get('video_length', None)
-            
+        def forward(hidden_states, context, attention_mask=None, video_length=None):
             # Preprocess with controller before calling original forward
-            norm_hidden_states = block.norm1(context)
+            norm_hidden_states = block.norm1(hidden_states)
+            video_length = 16
             norm_hidden_states, k_input, v_input = controller(
                 norm_hidden_states, video_length, place_in_unet
             )
             
             # Modify kwargs for attention inputs
-            kwargs['k_input'] = k_input
-            kwargs['v_input'] = v_input
-            kwargs['attention_mask'] = attention_mask
-            kwargs['video_length'] = video_length
+            hidden_states = (
+                block.attn1(
+                    norm_hidden_states,
+                    k_input=k_input,
+                    v_input=v_input,
+                    attention_mask=attention_mask,
+                    video_length=video_length,
+                )
+                + hidden_states
+            )
+            if block.attn2 is not None:
+                # Cross-Attention
+                norm_hidden_states = block.norm2(hidden_states)
+                norm_hidden_states, _, _ = controller(
+                    norm_hidden_states, video_length, place_in_unet
+                )
+                hidden_states = (
+                    block.attn2(
+                        norm_hidden_states,
+                        context=context,
+                        attention_mask=attention_mask,
+                    )
+                    + hidden_states
+                )
+            # Feed-forward
+            hidden_states = block.ff(block.norm3(hidden_states)) + hidden_states
             
             # Call the original forward method with modified arguments
-            return original_forward(*args, **kwargs)
+            return hidden_states
 
         return forward
 

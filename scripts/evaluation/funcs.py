@@ -15,6 +15,7 @@ def batch_ddim_sampling(model, cond, noise_shape, n_samples=1, ddim_steps=50, dd
     ddim_sampler = DDIMSampler(model)
     uncond_type = model.uncond_type
     batch_size = noise_shape[0]
+    # batch_size = batch_size * 2
 
     ## construct unconditional guidance
     if cfg_scale != 1.0:
@@ -49,7 +50,7 @@ def batch_ddim_sampling(model, cond, noise_shape, n_samples=1, ddim_steps=50, dd
             kwargs.update({"clean_cond": True})
             samples, _ = ddim_sampler.sample(S=ddim_steps,
                                             conditioning=cond,
-                                            batch_size=noise_shape[0],
+                                            batch_size=batch_size,
                                             shape=noise_shape[1:],
                                             verbose=False,
                                             unconditional_guidance_scale=cfg_scale,

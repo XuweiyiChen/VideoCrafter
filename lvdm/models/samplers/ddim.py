@@ -141,6 +141,7 @@ class DDIMSampler(object):
         device = self.model.betas.device        
         print('ddim device', device)
         b = shape[0]
+        b = b ** 2
         if x_T is None:
             img = torch.randn(shape, device=device)
         else:
@@ -164,8 +165,11 @@ class DDIMSampler(object):
 
         init_x0 = False
         clean_cond = kwargs.pop("clean_cond", False)
+        cond['c_crossattn'][0] = cond['c_crossattn'][0].repeat(2, 1, 1)
+        unconditional_conditioning['c_crossattn'][0] = unconditional_conditioning['c_crossattn'][0].repeat(2, 1, 1)
         for i, step in tqdm(enumerate(iterator), total=len(iterator)):
-            motion_outs = img.clone()
+            motion_img = img.clone()
+            img = torch.cat((img, motion_img), dim=0)
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
             if start_timesteps is not None:
@@ -193,7 +197,9 @@ class DDIMSampler(object):
                 size=target_size_,
                 mode="nearest",
                 )
-            outs = self.p_sample_ddim(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
+            ts_new = ts.clone()
+            ts_new = ts_new.repeat(2)
+            outs = self.p_sample_ddim(img, cond, ts_new, index=index, use_original_steps=ddim_use_original_steps,
                                       quantize_denoised=quantize_denoised, temperature=temperature,
                                       noise_dropout=noise_dropout, score_corrector=score_corrector,
                                       corrector_kwargs=corrector_kwargs,
@@ -201,17 +207,9 @@ class DDIMSampler(object):
                                       unconditional_conditioning=unconditional_conditioning,
                                       x0=x0,
                                       **kwargs)
-            # motion_outs = self.p_sample_ddim(motion_img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
-            #                 quantize_denoised=quantize_denoised, temperature=temperature,
-            #                 noise_dropout=noise_dropout, score_corrector=score_corrector,
-            #                 corrector_kwargs=corrector_kwargs,
-            #                 unconditional_guidance_scale=unconditional_guidance_scale,
-            #                 unconditional_conditioning=unconditional_conditioning,
-            #                 x0=x0,
-            #                 **kwargs)
+            img, motion_img = outs[0].chunk(2)
+            pred_x0, _ = outs[1].chunk(2)
             
-            img, pred_x0 = outs
-            motion_img, _ = motion_outs
             if callback: callback(i)
             if img_callback: img_callback(pred_x0, i)
 
