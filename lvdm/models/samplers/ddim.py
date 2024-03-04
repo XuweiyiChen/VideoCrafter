@@ -147,7 +147,7 @@ class DDIMSampler(object):
         else:
             img = x_T
 
-        motion_img = img.clone()
+        motion_img = torch.randn(shape, device=device)
         
         if timesteps is None:
             timesteps = self.ddpm_num_timesteps if ddim_use_original_steps else self.ddim_timesteps
