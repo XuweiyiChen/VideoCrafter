@@ -13,6 +13,12 @@ from lvdm.models.samplers.ddim import DDIMSampler
 def batch_ddim_sampling(model, cond, noise_shape, n_samples=1, ddim_steps=50, ddim_eta=1.0,\
                         cfg_scale=1.0, temporal_cfg_scale=None, **kwargs):
     ddim_sampler = DDIMSampler(model)
+    ddim_sampler.init_filter(
+                num_channels_latents= noise_shape[1],
+                width               = noise_shape[4],
+                height              = noise_shape[3],
+                video_length        = noise_shape[2],
+            )
     uncond_type = model.uncond_type
     batch_size = noise_shape[0]
     # batch_size = batch_size * 2

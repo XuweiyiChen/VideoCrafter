@@ -3,15 +3,160 @@ from tqdm import tqdm
 import torch
 from lvdm.models.utils_diffusion import make_ddim_sampling_parameters, make_ddim_timesteps
 from lvdm.common import noise_like
+from diffusers.schedulers import DDIMScheduler
+from utils.freeinit_utils import (
+    get_freq_filter,
+    freq_mix_3d,
+)
+from einops import rearrange
+
+import scripts.evaluation.ptp_utils as ptp_utils
+import abc
+
+class AttentionControl(abc.ABC):
+    def step_callback(self, x_t):
+        return x_t
+
+    def between_steps(self):
+        return
+
+    @abc.abstractmethod
+    def forward(self, attn, is_cross: bool, place_in_unet: str):
+        raise NotImplementedError
+
+    def __call__(self, hidden_states, video_length, place_in_unet: str):
+        video_length = 16
+        hidden_states = rearrange(hidden_states, "(b f) d c -> b f d c", f=video_length)
+        batch_size = hidden_states.shape[0] // 2
+
+        if batch_size == 2:
+            # Do classifier-free guidance
+            hidden_states_uncondition, hidden_states_condition = hidden_states.chunk(2)
+
+            if self.cur_step <= self.motion_control_step:
+                hidden_states_motion_uncondition = hidden_states_uncondition[
+                    1
+                ].unsqueeze(0)
+            else:
+                hidden_states_motion_uncondition = hidden_states_uncondition[
+                    0
+                ].unsqueeze(0)
+
+            hidden_states_out_uncondition = torch.cat(
+                [
+                    hidden_states_motion_uncondition,
+                    hidden_states_uncondition[1].unsqueeze(0),
+                ],
+                dim=0,
+            )  # Query
+            hidden_states_sac_in_uncondition = self.forward(
+                hidden_states_uncondition[0].unsqueeze(0), video_length, place_in_unet
+            )
+            hidden_states_sac_out_uncondition = torch.cat(
+                [
+                    hidden_states_sac_in_uncondition,
+                    hidden_states_uncondition[1].unsqueeze(0),
+                ],
+                dim=0,
+            )  # Key & Value
+
+            if self.cur_step <= self.motion_control_step:
+                hidden_states_motion_condition = hidden_states_condition[1].unsqueeze(0)
+            else:
+                hidden_states_motion_condition = hidden_states_condition[0].unsqueeze(0)
+
+            hidden_states_out_condition = torch.cat(
+                [
+                    hidden_states_motion_condition,
+                    hidden_states_condition[1].unsqueeze(0),
+                ],
+                dim=0,
+            )  # Query
+            hidden_states_sac_in_condition = self.forward(
+                hidden_states_condition[0].unsqueeze(0), video_length, place_in_unet
+            )
+            hidden_states_sac_out_condition = torch.cat(
+                [
+                    hidden_states_sac_in_condition,
+                    hidden_states_condition[1].unsqueeze(0),
+                ],
+                dim=0,
+            )  # Key & Value
+
+            hidden_states_out = torch.cat(
+                [hidden_states_out_uncondition, hidden_states_out_condition], dim=0
+            )
+            hidden_states_sac_out = torch.cat(
+                [hidden_states_sac_out_uncondition, hidden_states_sac_out_condition],
+                dim=0,
+            )
+
+        elif batch_size == 1:
+            if self.cur_step <= self.motion_control_step:
+                hidden_states_motion = hidden_states[1].unsqueeze(0)
+            else:
+                hidden_states_motion = hidden_states[0].unsqueeze(0)
+
+            hidden_states_out = torch.cat(
+                [hidden_states_motion, hidden_states[1].unsqueeze(0)], dim=0
+            )  # Query
+            hidden_states_sac_in = self.forward(
+                hidden_states[0].unsqueeze(0), video_length, place_in_unet
+            )
+            hidden_states_sac_out = torch.cat(
+                [hidden_states_sac_in, hidden_states[1].unsqueeze(0)], dim=0
+            )  # Key & Value
+
+        else:
+            #  gr.Error(f"Not implemented error")
+            raise NotImplementedError
+        hidden_states = rearrange(hidden_states, "b f d c -> (b f) d c", f=video_length)
+        hidden_states_out = rearrange(
+            hidden_states_out, "b f d c -> (b f) d c", f=video_length
+        )
+        hidden_states_sac_out = rearrange(
+            hidden_states_sac_out, "b f d c -> (b f) d c", f=video_length
+        )
+        self.cur_att_layer += 1
+        if self.cur_att_layer == self.num_att_layers:
+            self.cur_att_layer = 0
+            self.cur_step += 1
+        return hidden_states_out, hidden_states_sac_out, hidden_states_sac_out
+
+    def reset(self):
+        self.cur_step = 0
+        self.cur_att_layer = 0
+        self.num_att_layers = -1
+        self.motion_control_step = 0
+        
+    def __init__(self):
+        self.cur_step = 0
+        self.cur_att_layer = 0
+        self.num_att_layers = -1
+        self.motion_control_step = 0
 
 
+class EmptyControl(AttentionControl):
+    def forward(self, hidden_states, video_length, place_in_unet):
+        return hidden_states
+
+
+class FreeSAC(AttentionControl):
+    def forward(self, hidden_states, video_length, place_in_unet):
+        hidden_states_sac = (
+            hidden_states[:, 0, :, :].unsqueeze(1).repeat(1, video_length, 1, 1)
+        )
+        return hidden_states_sac
+    
 class DDIMSampler(object):
     def __init__(self, model, schedule="linear", **kwargs):
         super().__init__()
         self.model = model
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
+        self.scheduler = DDIMScheduler(beta_start = 0.00085, beta_end = 0.012, beta_schedule = "linear")
         self.counter = 0
+        self.freq_filter = None
 
     def register_buffer(self, name, attr):
         if type(attr) == torch.Tensor:
@@ -128,7 +273,28 @@ class DDIMSampler(object):
                                                     verbose=verbose,
                                                     **kwargs)
         return samples, intermediates
-
+    
+    @torch.no_grad()
+    def init_filter(self, num_channels_latents, video_length, height, width, filter_params = {"method": 'butterworth', "n": 4, "d_s": 0.25, "d_t": 0.25}):
+        # initialize frequency filter for noise reinitialization
+        batch_size = 1
+        filter_shape = [
+            batch_size,
+            num_channels_latents,
+            video_length,
+            height,
+            width,
+        ]
+        # self.freq_filter = get_freq_filter(filter_shape, device=self._execution_device, params=filter_params)
+        self.freq_filter = get_freq_filter(
+            filter_shape,
+            device=self.model.betas.device,
+            filter_type=filter_params["method"],
+            n=filter_params["n"] if filter_params["method"] == "butterworth" else None,
+            d_s=filter_params["d_s"],
+            d_t=filter_params["d_t"],
+        )
+        
     @torch.no_grad()
     def ddim_sampling(self, cond, shape,
                       x_T=None, ddim_use_original_steps=False,
@@ -136,8 +302,16 @@ class DDIMSampler(object):
                       mask=None, x0=None, img_callback=None, log_every_t=100,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
                       unconditional_guidance_scale=1., unconditional_conditioning=None, verbose=True,
-                      cond_tau=1., target_size=None, start_timesteps=None,
+                      cond_tau=1., target_size=None, start_timesteps=None, num_iters: int = 3, batch_size: int = 1,
                       **kwargs):
+        
+        # subset_end = int(min(timesteps / self.ddim_timesteps.shape[0], 1) * self.ddim_timesteps.shape[0]) - 1
+        # timesteps = self.ddim_timesteps[:subset_end]
+        motion_control = 1
+        motion_control_step = motion_control * self.ddim_timesteps.shape[0]
+        attn_controller = FreeSAC()
+        attn_controller.motion_control_step = motion_control_step
+        ptp_utils.register_attention_control(self.model, attn_controller)
         device = self.model.betas.device        
         print('ddim device', device)
         b = shape[0]
@@ -148,75 +322,101 @@ class DDIMSampler(object):
             img = x_T
 
         motion_img = torch.randn(shape, device=device)
-        
-        if timesteps is None:
-            timesteps = self.ddpm_num_timesteps if ddim_use_original_steps else self.ddim_timesteps
-        elif timesteps is not None and not ddim_use_original_steps:
-            subset_end = int(min(timesteps / self.ddim_timesteps.shape[0], 1) * self.ddim_timesteps.shape[0]) - 1
-            timesteps = self.ddim_timesteps[:subset_end]
-            
-        intermediates = {'x_inter': [img], 'pred_x0': [img]}
-        time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)
-        total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
-        if verbose:
-            iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
-        else:
-            iterator = time_range
-
         init_x0 = False
         clean_cond = kwargs.pop("clean_cond", False)
         cond['c_crossattn'][0] = cond['c_crossattn'][0].repeat(2, 1, 1)
         unconditional_conditioning['c_crossattn'][0] = unconditional_conditioning['c_crossattn'][0].repeat(2, 1, 1)
-        for i, step in tqdm(enumerate(iterator), total=len(iterator)):
-            motion_img = img.clone()
-            img = torch.cat((img, motion_img), dim=0)
-            index = total_steps - i - 1
-            ts = torch.full((b,), step, device=device, dtype=torch.long)
-            if start_timesteps is not None:
-                assert x0 is not None
-                if step > start_timesteps*time_range[0]:
-                    continue
-                elif not init_x0:
-                    img = self.model.q_sample(x0, ts) 
-                    init_x0 = True
-
-            # use mask to blend noised original latent (img_orig) & new sampled latent (img)
-            if mask is not None:
-                assert x0 is not None
-                if clean_cond:
-                    img_orig = x0
-                else:
-                    img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass? <ddim inversion>
-                img = img_orig * mask + (1. - mask) * img # keep original & modify use img
-            
-            index_clip =  int((1 - cond_tau) * total_steps)
-            if index <= index_clip and target_size is not None:
-                target_size_ = [target_size[0], target_size[1]//8, target_size[2]//8]
-                img = torch.nn.functional.interpolate(
-                img,
-                size=target_size_,
-                mode="nearest",
+        for iter in range(num_iters):
+            if iter == 0:
+                initial_noise = img
+            else:
+                # 1. DDPM Forward with initial noise, get noisy latents z_T
+                # if use_fast_sampling:
+                #     current_diffuse_timestep = self.scheduler.config.num_train_timesteps / num_iters * (iter + 1) - 1
+                # else:
+                #     current_diffuse_timestep = self.scheduler.config.num_train_timesteps - 1
+                current_diffuse_timestep = self.scheduler.config.num_train_timesteps - 1 # diffuse to t=999 noise level
+                diffuse_timesteps = torch.full((batch_size,),int(current_diffuse_timestep))
+                diffuse_timesteps = diffuse_timesteps.long()
+                z_T = self.scheduler.add_noise(
+                    original_samples=img.to(device), 
+                    noise=initial_noise.to(device), 
+                    timesteps=diffuse_timesteps.to(device)
                 )
-            ts_new = ts.clone()
-            ts_new = ts_new.repeat(2)
-            outs = self.p_sample_ddim(img, cond, ts_new, index=index, use_original_steps=ddim_use_original_steps,
-                                      quantize_denoised=quantize_denoised, temperature=temperature,
-                                      noise_dropout=noise_dropout, score_corrector=score_corrector,
-                                      corrector_kwargs=corrector_kwargs,
-                                      unconditional_guidance_scale=unconditional_guidance_scale,
-                                      unconditional_conditioning=unconditional_conditioning,
-                                      x0=x0,
-                                      **kwargs)
-            img, motion_img = outs[0].chunk(2)
-            pred_x0, _ = outs[1].chunk(2)
-            
-            if callback: callback(i)
-            if img_callback: img_callback(pred_x0, i)
+                # 2. create random noise z_rand for high-frequency
+                z_rand = torch.randn(shape, device=device)
+                # 3. Roise Reinitialization
+                img = freq_mix_3d(z_T.to(dtype=torch.float32), z_rand, LPF=self.freq_filter)
+                
+            if timesteps is None:
+                timesteps = self.ddpm_num_timesteps if ddim_use_original_steps else self.ddim_timesteps
+            elif timesteps is not None and not ddim_use_original_steps:
+                subset_end = int(min(timesteps / self.ddim_timesteps.shape[0], 1) * self.ddim_timesteps.shape[0]) - 1
+                timesteps = self.ddim_timesteps[:subset_end]
+                
+            intermediates = {'x_inter': [img], 'pred_x0': [img]}
+            time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)
+            total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
+            if verbose:
+                iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
+            else:
+                iterator = time_range
 
-            if index % log_every_t == 0 or index == total_steps - 1:
-                intermediates['x_inter'].append(img)
-                intermediates['pred_x0'].append(pred_x0)
+            for i, step in tqdm(enumerate(iterator), total=len(iterator)):
+                motion_img = img.clone()
+                img = torch.cat((img, motion_img), dim=0)
+                index = total_steps - i - 1
+                ts = torch.full((b,), step, device=device, dtype=torch.long)
+                if start_timesteps is not None:
+                    assert x0 is not None
+                    if step > start_timesteps*time_range[0]:
+                        continue
+                    elif not init_x0:
+                        img = self.model.q_sample(x0, ts) 
+                        init_x0 = True
 
+                # use mask to blend noised original latent (img_orig) & new sampled latent (img)
+                if mask is not None:
+                    assert x0 is not None
+                    if clean_cond:
+                        img_orig = x0
+                    else:
+                        img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass? <ddim inversion>
+                    img = img_orig * mask + (1. - mask) * img # keep original & modify use img
+                
+                index_clip =  int((1 - cond_tau) * total_steps)
+                if index <= index_clip and target_size is not None:
+                    target_size_ = [target_size[0], target_size[1]//8, target_size[2]//8]
+                    img = torch.nn.functional.interpolate(
+                    img,
+                    size=target_size_,
+                    mode="nearest",
+                    )
+                ts_new = ts.clone()
+                ts_new = ts_new.repeat(2)
+                outs = self.p_sample_ddim(img, cond, ts_new, index=index, use_original_steps=ddim_use_original_steps,
+                                        quantize_denoised=quantize_denoised, temperature=temperature,
+                                        noise_dropout=noise_dropout, score_corrector=score_corrector,
+                                        corrector_kwargs=corrector_kwargs,
+                                        unconditional_guidance_scale=unconditional_guidance_scale,
+                                        unconditional_conditioning=unconditional_conditioning,
+                                        x0=x0,
+                                        **kwargs)
+                img, motion_img = outs[0].chunk(2)
+                pred_x0, _ = outs[1].chunk(2)
+                
+                if callback: callback(i)
+                if img_callback: img_callback(pred_x0, i)
+
+                if index % log_every_t == 0 or index == total_steps - 1:
+                    intermediates['x_inter'].append(img)
+                    intermediates['pred_x0'].append(pred_x0)
+
+            timesteps = None
+            attn_controller = EmptyControl()
+            attn_controller.motion_control_step = -1
+            ptp_utils.register_attention_control(self.model, attn_controller)
+            attn_controller.reset()
         return img, intermediates
 
     @torch.no_grad()
