@@ -1,4 +1,4 @@
-
+VideoCrafter1 + 350 * 512
 ## ___***VideoCrafter2: Overcoming Data Limitations for High-Quality Video Diffusion Models***___
 
 <a href='https://ailab-cvc.github.io/videocrafter2/'><img src='https://img.shields.io/badge/Project-Page-green'></a> 
