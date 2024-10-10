@@ -16,6 +16,7 @@ from funcs import load_model_checkpoint, load_prompts, load_image_batch, get_fil
 from funcs import batch_ddim_sampling
 from utils.utils import instantiate_from_config
 import abc
+from pathlib import Path
 
 
 class AttentionControl(abc.ABC):
@@ -266,7 +267,14 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
         ## b,samples,c,t,h,w
         save_videos(batch_samples, args.savedir, filenames, fps=args.savefps)
 
+    end = time.time()
+    duration = end - start
     print(f"Saved in {args.savedir}. Time used: {(time.time() - start):.2f} seconds")
+    output_path = Path(args.savedir, f'loop_duration_{args.savedir.split("/")[-1]}.txt')
+    with open(output_path, "w") as file:
+        file.write(f"Loop started at: {start.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        file.write(f"Loop ended at: {end.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        file.write(f"Total loop duration: {duration}\n")
     
 
 if __name__ == '__main__':
