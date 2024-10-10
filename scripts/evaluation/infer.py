@@ -16,23 +16,24 @@ from funcs import load_model_checkpoint, load_prompts, load_image_batch, get_fil
 from funcs import batch_ddim_sampling
 from utils.utils import instantiate_from_config
 import abc
+from pathlib import Path
    
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=123123123, help="seed for seed_everything")
+    parser.add_argument("--seed", type=int, default=42, help="seed for seed_everything")
     parser.add_argument("--mode", default="base", type=str, help="which kind of inference mode: {'base', 'i2v'}")
     parser.add_argument("--ckpt_path", type=str, default='/home/tianxia/VideoCrafter/checkpoints/base_256_v1/model.ckpt', help="checkpoint path")
     parser.add_argument("--config", type=str, default='/home/tianxia/VideoCrafter/configs/inference_t2v_256_v1.0.yaml', help="config (yaml) path")
-    parser.add_argument("--prompt_file", type=str, default="/home/tianxia/VideoCrafter/prompts/test_prompts.txt", help="a text file containing many prompts")
-    parser.add_argument("--savedir", type=str, default="/home/tianxia/VideoCrafter/results/test", help="results saving path")
+    parser.add_argument("--prompt_file", type=str, default="/home/tianxia/VideoCrafter/prompts/data.txt", help="a text file containing many prompts")
+    parser.add_argument("--savedir", type=str, default="/home/tianxia/VideoCrafter/results/VideoCrafter_orig_256_seed=42", help="results saving path")
     parser.add_argument("--savefps", type=str, default=10, help="video fps to generate")
     parser.add_argument("--n_samples", type=int, default=1, help="num of samples per prompt",)
     parser.add_argument("--ddim_steps", type=int, default=50, help="steps of ddim if positive, otherwise use DDPM",)
     parser.add_argument("--ddim_eta", type=float, default=1.0, help="eta for ddim sampling (0.0 yields deterministic sampling)",)
     parser.add_argument("--bs", type=int, default=1, help="batch size for inference")
-    parser.add_argument("--height", type=int, default=320, help="image height, in pixel space")
-    parser.add_argument("--width", type=int, default=512, help="image width, in pixel space")
+    parser.add_argument("--height", type=int, default=256, help="image height, in pixel space")
+    parser.add_argument("--width", type=int, default=256, help="image width, in pixel space")
     parser.add_argument("--frames", type=int, default=-1, help="frames num to inference")
     parser.add_argument("--fps", type=int, default=28)
     parser.add_argument("--unconditional_guidance_scale", type=float, default=12.0, help="prompt classifier-free guidance")
@@ -128,7 +129,14 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
         ## b,samples,c,t,h,w
         save_videos(batch_samples, args.savedir, filenames, fps=args.savefps)
 
+    end = time.time()
+    duration = end - start
     print(f"Saved in {args.savedir}. Time used: {(time.time() - start):.2f} seconds")
+    output_path = Path(args.savedir, f'loop_duration_{args.savedir.split("/")[-1]}.txt')
+    with open(output_path, "w") as file:
+        file.write(f"Loop started at: {start.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        file.write(f"Loop ended at: {end.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        file.write(f"Total loop duration: {duration}\n")
     
 
 if __name__ == '__main__':
