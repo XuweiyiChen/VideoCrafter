@@ -238,7 +238,7 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
 
         prompts = prompt_list_rank[idx_s:idx_e]
         filenames = prompts
-        breakpoint()
+
         if isinstance(prompts, str):
             prompts = [prompts]
         #prompts = batch_size * [""]
