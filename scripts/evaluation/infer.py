@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = str(1)
+
 import argparse, os, sys, glob, yaml, math, random
 import datetime, time
 import numpy as np
@@ -155,10 +155,10 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=42, help="seed for seed_everything")
     parser.add_argument("--mode", default="base", type=str, help="which kind of inference mode: {'base', 'i2v'}")
-    parser.add_argument("--ckpt_path", type=str, default='/home/tianxia/VideoCrafter/checkpoints/base_512_v1/model.ckpt', help="checkpoint path")
-    parser.add_argument("--config", type=str, default='/home/tianxia/VideoCrafter/configs/inference_t2v_512_v1.0.yaml', help="config (yaml) path")
-    parser.add_argument("--prompt_file", type=str, default="/home/tianxia/VideoCrafter/prompts/data.txt", help="a text file containing many prompts")
-    parser.add_argument("--savedir", type=str, default="/home/tianxia/VideoCrafter/results/512_seed=42", help="results saving path")
+    parser.add_argument("--ckpt_path", type=str, default='/scratch/lsa_root/lsa1/tianxia/VideoCrafter/checkpoints/base_1024_v1/model.ckpt', help="checkpoint path")
+    parser.add_argument("--config", type=str, default='/scratch/lsa_root/lsa1/tianxia/VideoCrafter/configs/inference_t2v_1024_v1.0.yaml', help="config (yaml) path")
+    parser.add_argument("--prompt_file", type=str, default="/scratch/lsa_root/lsa1/tianxia/VideoCrafter/prompts/data.txt", help="a text file containing many prompts")
+    parser.add_argument("--savedir", type=str, default="/scratch/lsa_root/lsa1/tianxia/VideoCrafter/results/VideoCrafter_orig_seed=42", help="results saving path")
     parser.add_argument("--savefps", type=str, default=10, help="video fps to generate")
     parser.add_argument("--n_samples", type=int, default=1, help="num of samples per prompt",)
     parser.add_argument("--ddim_steps", type=int, default=50, help="steps of ddim if positive, otherwise use DDPM",)
@@ -272,8 +272,6 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
     print(f"Saved in {args.savedir}. Time used: {(time.time() - start):.2f} seconds")
     output_path = Path(args.savedir, f'loop_duration_{args.savedir.split("/")[-1]}.txt')
     with open(output_path, "w") as file:
-        file.write(f"Loop started at: {start.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        file.write(f"Loop ended at: {end.strftime('%Y-%m-%d %H:%M:%S')}\n")
         file.write(f"Total loop duration: {duration}\n")
     
 
