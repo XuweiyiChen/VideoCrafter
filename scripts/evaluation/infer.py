@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = str(1)
 import argparse, os, sys, glob, yaml, math, random
 import datetime, time
 import numpy as np
@@ -17,27 +16,28 @@ from funcs import batch_ddim_sampling
 from utils.utils import instantiate_from_config
 import abc
 from pathlib import Path
-   
+
+from diffusers import AutoencoderKL
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed", type=int, default=42, help="seed for seed_everything")
+    parser.add_argument("--seed", type=int, default=123123123, help="seed for seed_everything")
     parser.add_argument("--mode", default="base", type=str, help="which kind of inference mode: {'base', 'i2v'}")
-    parser.add_argument("--ckpt_path", type=str, default='/home/tianxia/VideoCrafter/checkpoints/base_256_v1/model.ckpt', help="checkpoint path")
-    parser.add_argument("--config", type=str, default='/home/tianxia/VideoCrafter/configs/inference_t2v_256_v1.0.yaml', help="config (yaml) path")
-    parser.add_argument("--prompt_file", type=str, default="/home/tianxia/VideoCrafter/prompts/data.txt", help="a text file containing many prompts")
-    parser.add_argument("--savedir", type=str, default="/home/tianxia/VideoCrafter/results/VideoCrafter_orig_256_seed=42", help="results saving path")
+    parser.add_argument("--ckpt_path", type=str, default='/home/tianxia/VideoCrafter/checkpoints/base_512_v1/model.ckpt', help="checkpoint path")
+    parser.add_argument("--config", type=str, default='/home/tianxia/VideoCrafter/configs/inference_t2v_512_v1.0.yaml', help="config (yaml) path")
+    parser.add_argument("--prompt_file", type=str, default="/home/tianxia/VideoCrafter/prompts/test_prompts.txt", help="a text file containing many prompts")
+    parser.add_argument("--savedir", type=str, default="/home/tianxia/VideoCrafter/results/orig_512_eta=0_ugst=10", help="results saving path")
     parser.add_argument("--savefps", type=str, default=10, help="video fps to generate")
     parser.add_argument("--n_samples", type=int, default=1, help="num of samples per prompt",)
-    parser.add_argument("--ddim_steps", type=int, default=50, help="steps of ddim if positive, otherwise use DDPM",)
-    parser.add_argument("--ddim_eta", type=float, default=1.0, help="eta for ddim sampling (0.0 yields deterministic sampling)",)
+    parser.add_argument("--ddim_steps", type=int, default=25, help="steps of ddim if positive, otherwise use DDPM",)
+    parser.add_argument("--ddim_eta", type=float, default=0.0, help="eta for ddim sampling (0.0 yields deterministic sampling)",)
     parser.add_argument("--bs", type=int, default=1, help="batch size for inference")
-    parser.add_argument("--height", type=int, default=256, help="image height, in pixel space")
-    parser.add_argument("--width", type=int, default=256, help="image width, in pixel space")
+    parser.add_argument("--height", type=int, default=320, help="image height, in pixel space")
+    parser.add_argument("--width", type=int, default=512, help="image width, in pixel space")
     parser.add_argument("--frames", type=int, default=-1, help="frames num to inference")
     parser.add_argument("--fps", type=int, default=28)
     parser.add_argument("--unconditional_guidance_scale", type=float, default=12.0, help="prompt classifier-free guidance")
-    parser.add_argument("--unconditional_guidance_scale_temporal", type=float, default=None, help="temporal consistency guidance")
+    parser.add_argument("--unconditional_guidance_scale_temporal", type=float, default=10, help="temporal consistency guidance")
     ## for conditional i2v only
     parser.add_argument("--cond_input", type=str, default=None, help="data dir of conditional input")
     parser.add_argument("--motion_ctrl", type=int, default=1, help="motion control steps")
@@ -53,6 +53,8 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
     model = model.cuda(gpu_no)
     assert os.path.exists(args.ckpt_path), f"Error: checkpoint [{args.ckpt_path}] Not Found!"
     model = load_model_checkpoint(model, args.ckpt_path)
+    # vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae")
+    # model.first_stage_model = vae.cuda(gpu_no)
     model.eval()
 
     ## sample shape
@@ -125,7 +127,7 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
 
         # inference
         batch_samples = batch_ddim_sampling(model, cond, noise_shape, args.n_samples, \
-                                                args.ddim_steps, args.ddim_eta, args.unconditional_guidance_scale, **kwargs)
+                                                args.ddim_steps, args.ddim_eta, args.unconditional_guidance_scale, args.unconditional_guidance_scale_temporal, **kwargs)
         ## b,samples,c,t,h,w
         save_videos(batch_samples, args.savedir, filenames, fps=args.savefps)
 
@@ -134,8 +136,6 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
     print(f"Saved in {args.savedir}. Time used: {(time.time() - start):.2f} seconds")
     output_path = Path(args.savedir, f'loop_duration_{args.savedir.split("/")[-1]}.txt')
     with open(output_path, "w") as file:
-        file.write(f"Loop started at: {start.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        file.write(f"Loop ended at: {end.strftime('%Y-%m-%d %H:%M:%S')}\n")
         file.write(f"Total loop duration: {duration}\n")
     
 

@@ -253,9 +253,8 @@ class DDIMSampler(object):
                     raise NotImplementedError
             # temporal guidance
             if conditional_guidance_scale_temporal is not None:
-                e_t_temporal = self.model.apply_model(x, t, c, **kwargs)
                 e_t_image = self.model.apply_model(x, t, c, no_temporal_attn=True, **kwargs)
-                e_t = e_t + conditional_guidance_scale_temporal * (e_t_temporal - e_t_image)
+                e_t = e_t + conditional_guidance_scale_temporal * (e_t - e_t_image)
 
         if score_corrector is not None:
             assert self.model.parameterization == "eps"
