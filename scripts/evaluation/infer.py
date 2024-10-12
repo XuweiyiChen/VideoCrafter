@@ -172,7 +172,7 @@ def get_parser():
     parser.add_argument("--unconditional_guidance_scale_temporal", type=float, default=None, help="temporal consistency guidance")
     ## for conditional i2v only
     parser.add_argument("--cond_input", type=str, default=None, help="data dir of conditional input")
-    parser.add_argument("--motion_ctrl", type=int, default=1, help="motion control steps")
+    parser.add_argument("--motion_ctrl", type=float, default=1, help="motion control steps")
     return parser
 
 def run_inference(args, gpu_num, gpu_no, **kwargs):
