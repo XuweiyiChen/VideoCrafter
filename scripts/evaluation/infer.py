@@ -258,7 +258,7 @@ def run_inference(args, gpu_num, gpu_no, **kwargs):
 
         # inference
         motion_control = args.motion_ctrl
-        motion_control_step = motion_control * args.ddim_steps
+        motion_control_step = motion_control * args.ddim_steps * 2
         attn_controller = FreeSAC()
         attn_controller.motion_control_step = motion_control_step
         ptp_utils.register_attention_control(model, attn_controller)
