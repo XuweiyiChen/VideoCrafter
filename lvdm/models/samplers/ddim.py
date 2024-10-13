@@ -174,12 +174,11 @@ class DDIMSampler(object):
         else:
             img = x_T
 
-        initial_img = img
         # Sampling with FreeInit.
         for iter in range(num_iters):
             #  FreeInit ------------------------------------------------------------------
             if iter == 0:
-                initial_noise = img
+                initial_noise = img.detach().clone()
             else:
                 # 1. DDPM Forward with initial noise, get noisy latents z_T
                 # if use_fast_sampling:
