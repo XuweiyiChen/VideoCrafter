@@ -7,10 +7,14 @@
 #SBATCH --cpus-per-task=4  # Increased CPU count for parallel processing
 #SBATCH --mem=40G  # Adjust as per your job's requirement
 #SBATCH --gres=gpu:1  # Adjust based on GPU needs
-#SBATCH --job-name="VideoCrafter_unictrl_c=0.4_seed=0"
+#SBATCH --job-name="VideoCrafter_unictrl_c=1_seed=0_512_v1"
 #SBATCH --output=/scratch/lsa_root/lsa1/tianxia/VideoCrafter/gl-outputs/%x-%j.out
 #SBATCH --error=/scratch/lsa_root/lsa1/tianxia/VideoCrafter/gl-outputs/%x-%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL  # Removed BEGIN and REQUEUE notifications
 module load cuda
 cd /scratch/lsa_root/lsa1/tianxia/VideoCrafter
-python scripts/evaluation/infer.py --motion_ctrl 0.4 --seed 0 --savedir results/VideoCrafter_unictrl_c=0.4_seed=0
+python scripts/evaluation/infer.py --prompt_file prompts/test_prompts.txt \
+                                   --ckpt_path checkpoints/base_512_v1/model.ckpt \
+                                   --config configs/inference_t2v_512_v1.0.yaml \
+                                   --motion_ctrl 0 --seed 0 --height 320 --width 512\
+                                   --savedir Test/orig_model=512_res=320*512_c=1_seed=0
