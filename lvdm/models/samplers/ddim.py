@@ -308,11 +308,11 @@ class DDIMSampler(object):
         
         # subset_end = int(min(timesteps / self.ddim_timesteps.shape[0], 1) * self.ddim_timesteps.shape[0]) - 1
         # timesteps = self.ddim_timesteps[:subset_end]
-        motion_control = 1
-        motion_control_step = motion_control * self.ddim_timesteps.shape[0]
-        attn_controller = FreeSAC()
-        attn_controller.motion_control_step = motion_control_step
-        ptp_utils.register_attention_control(self.model, attn_controller)
+        # motion_control = 1
+        # motion_control_step = motion_control * self.ddim_timesteps.shape[0]
+        # attn_controller = FreeSAC()
+        # attn_controller.motion_control_step = motion_control_step
+        # ptp_utils.register_attention_control(self.model, attn_controller)
         device = self.model.betas.device        
         print('ddim device', device)
         b = shape[0]
@@ -321,11 +321,8 @@ class DDIMSampler(object):
         else:
             img = x_T
 
-        motion_img = torch.randn(shape, device=device)
         init_x0 = False
         clean_cond = kwargs.pop("clean_cond", False)
-        cond['c_crossattn'][0] = cond['c_crossattn'][0].repeat(2, 1, 1)
-        unconditional_conditioning['c_crossattn'][0] = unconditional_conditioning['c_crossattn'][0].repeat(2, 1, 1)
         for iter in range(num_iters):
             if iter == 0:
                 initial_noise = img.detach().clone()
@@ -363,8 +360,6 @@ class DDIMSampler(object):
                 iterator = time_range
 
             for i, step in tqdm(enumerate(iterator), total=len(iterator)):
-                motion_img = img.clone()
-                img = torch.cat((img, motion_img), dim=0)
                 index = total_steps - i - 1
                 ts = torch.full((b,), step, device=device, dtype=torch.long)
                 if start_timesteps is not None:
@@ -392,9 +387,7 @@ class DDIMSampler(object):
                     size=target_size_,
                     mode="nearest",
                     )
-                ts_new = ts.clone()
-                ts_new = ts_new.repeat(2)
-                outs = self.p_sample_ddim(img, cond, ts_new, index=index, use_original_steps=ddim_use_original_steps,
+                outs = self.p_sample_ddim(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
                                         quantize_denoised=quantize_denoised, temperature=temperature,
                                         noise_dropout=noise_dropout, score_corrector=score_corrector,
                                         corrector_kwargs=corrector_kwargs,
@@ -402,8 +395,7 @@ class DDIMSampler(object):
                                         unconditional_conditioning=unconditional_conditioning,
                                         x0=x0,
                                         **kwargs)
-                img, motion_img = outs[0].chunk(2)
-                pred_x0, _ = outs[1].chunk(2)
+                img, pred_x0 = outs
                 
                 if callback: callback(i)
                 if img_callback: img_callback(pred_x0, i)
@@ -413,10 +405,10 @@ class DDIMSampler(object):
                     intermediates['pred_x0'].append(pred_x0)
 
             timesteps = None
-            attn_controller = EmptyControl()
-            attn_controller.motion_control_step = -1
-            ptp_utils.register_attention_control(self.model, attn_controller)
-            attn_controller.reset()
+            # attn_controller = EmptyControl()
+            # attn_controller.motion_control_step = -1
+            # ptp_utils.register_attention_control(self.model, attn_controller)
+            # attn_controller.reset()
         return img, intermediates
 
     @torch.no_grad()
