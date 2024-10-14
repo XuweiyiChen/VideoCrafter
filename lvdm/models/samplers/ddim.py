@@ -154,7 +154,6 @@ class DDIMSampler(object):
         self.model = model
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
-        self.scheduler = DDIMScheduler(beta_start = 0.00085, beta_end = 0.012, beta_schedule = "linear")
         self.counter = 0
         self.freq_filter = None
 
@@ -246,6 +245,8 @@ class DDIMSampler(object):
                     print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
 
         self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=schedule_verbose)
+        self.scheduler = DDIMScheduler(num_train_timesteps=S, trained_betas=self.model.betas)
+
         
         # make shape
         if len(shape) == 3:
@@ -320,7 +321,6 @@ class DDIMSampler(object):
         else:
             img = x_T
 
-        breakpoint()
         motion_img = torch.randn(shape, device=device)
         init_x0 = False
         clean_cond = kwargs.pop("clean_cond", False)
