@@ -148,7 +148,7 @@ class FreeSAC(AttentionControl):
         hidden_states_sac = (
             context[:, 0, :, :].unsqueeze(1).repeat(1, video_length, 1, 1)
         )
-        return context
+        return hidden_states_sac
     
 
 def get_parser():
