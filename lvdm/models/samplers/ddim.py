@@ -146,7 +146,7 @@ class FreeSAC(AttentionControl):
         hidden_states_sac = (
             hidden_states[:, 0, :, :].unsqueeze(1).repeat(1, video_length, 1, 1)
         )
-        return hidden_states_sac
+        return hidden_states
     
 class DDIMSampler(object):
     def __init__(self, model, schedule="linear", **kwargs):
@@ -275,7 +275,7 @@ class DDIMSampler(object):
         return samples, intermediates
     
     @torch.no_grad()
-    def init_filter(self, num_channels_latents, video_length, height, width, filter_params = {"method": 'butterworth', "n": 4, "d_s": 0.25, "d_t": 0.25}):
+    def init_filter(self, num_channels_latents, video_length, height, width, filter_params = {"method": 'gaussian', "n": 4, "d_s": 1, "d_t": 1}):
         # initialize frequency filter for noise reinitialization
         batch_size = 1
         filter_shape = [
@@ -315,12 +315,12 @@ class DDIMSampler(object):
         device = self.model.betas.device        
         print('ddim device', device)
         b = shape[0]
-        b = b ** 2
         if x_T is None:
             img = torch.randn(shape, device=device)
         else:
             img = x_T
 
+        breakpoint()
         motion_img = torch.randn(shape, device=device)
         init_x0 = False
         clean_cond = kwargs.pop("clean_cond", False)
@@ -328,7 +328,7 @@ class DDIMSampler(object):
         unconditional_conditioning['c_crossattn'][0] = unconditional_conditioning['c_crossattn'][0].repeat(2, 1, 1)
         for iter in range(num_iters):
             if iter == 0:
-                initial_noise = img
+                initial_noise = img.detach().clone()
             else:
                 # 1. DDPM Forward with initial noise, get noisy latents z_T
                 # if use_fast_sampling:
