@@ -245,7 +245,8 @@ class DDIMSampler(object):
                     print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
 
         self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=schedule_verbose)
-        self.scheduler = DDIMScheduler(num_train_timesteps=S, trained_betas=self.model.betas)
+        # self.scheduler = DDIMScheduler(num_train_timesteps=S, trained_betas=self.model.betas)
+        self.scheduler = DDIMScheduler(beta_start = 0.00085, beta_end = 0.012, beta_schedule = "linear")
 
         
         # make shape
@@ -276,7 +277,7 @@ class DDIMSampler(object):
         return samples, intermediates
     
     @torch.no_grad()
-    def init_filter(self, num_channels_latents, video_length, height, width, filter_params = {"method": 'gaussian', "n": 4, "d_s": 1, "d_t": 1}):
+    def init_filter(self, num_channels_latents, video_length, height, width, filter_params = {"method": 'butterworth', "n": 4, "d_s": 0.25, "d_t": 0.25}):
         # initialize frequency filter for noise reinitialization
         batch_size = 1
         filter_shape = [
